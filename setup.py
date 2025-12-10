@@ -1,14 +1,29 @@
+import os
 from setuptools import setup, find_packages
 
-with open("README.md", "r", encoding="utf-8") as fh:
+# 获取当前 setup.py 文件的目录
+here = os.path.abspath(os.path.dirname(__file__))
+
+# 使用绝对路径读取文件
+with open(os.path.join(here, "README.md"), "r", encoding="utf-8") as fh:
     long_description = fh.read()
 
-with open("requirements.txt", "r", encoding="utf-8") as fh:
-    requirements = [line.strip() for line in fh if line.strip() and not line.startswith("#")]
+requirements = []
+req_path = os.path.join(here, "requirements.txt")
+if os.path.exists(req_path):
+    with open(req_path, "r", encoding="utf-8") as fh:
+        requirements = [line.strip() for line in fh if line.strip() and not line.startswith("#")]
+
+version_path = os.path.join(here, "VERSION")
+if os.path.exists(version_path):
+    with open(version_path, "r", encoding="utf-8") as fh:
+        version = fh.read().strip()
+else:
+    version = "0.1.0" # Fallback
 
 setup(
     name="fin-agent",
-    version="0.1.2",
+    version=version,
     author="Fin Agent Team",
     description="A financial analysis agent powered by DeepSeek and Tushare",
     long_description=long_description,
@@ -27,4 +42,3 @@ setup(
         ],
     },
 )
-

@@ -1,14 +1,34 @@
 import sys
+import argparse
 import colorama
 from colorama import Fore, Style
 from fin_agent.agent.core import FinAgent
 from fin_agent.config import Config
+from importlib.metadata import version, PackageNotFoundError
 
 # Initialize colorama
 colorama.init()
 
+def get_version():
+    try:
+        return version("fin-agent")
+    except PackageNotFoundError:
+        return "unknown (dev)"
+
 def main():
-    print(f"{Fore.CYAN}Welcome to Fin-Agent!{Style.RESET_ALL}")
+    parser = argparse.ArgumentParser(description="Fin-Agent: Financial Analysis AI Agent")
+    parser.add_argument("-v", "--version", action="store_true", help="Show version number and exit")
+    
+    # Use parse_known_args so that if we want to add other args later or if existing logic uses sys.argv it doesn't break
+    # But for now, we only have -v. 
+    # If we use parse_args(), it will process flags. If no flags, we continue to interactive mode.
+    args, unknown = parser.parse_known_args()
+
+    if args.version:
+        print(f"fin-agent version {get_version()}")
+        sys.exit(0)
+
+    print(f"{Fore.CYAN}Welcome to Fin-Agent (v{get_version()})!{Style.RESET_ALL}")
     
     # Check configuration and setup if needed
     try:

@@ -2,8 +2,16 @@ import os
 import shutil
 import subprocess
 import sys
-import re
+import argparse
 from pathlib import Path
+
+def get_current_version(version_file="VERSION"):
+    """Read the current version from the VERSION file."""
+    path = Path(version_file)
+    if not path.exists():
+        print(f"Error: {version_file} not found.")
+        sys.exit(1)
+    return path.read_text(encoding="utf-8").strip()
 
 def clean_build_artifacts():
     """Clean up build artifacts."""
@@ -18,30 +26,27 @@ def clean_build_artifacts():
                 os.remove(path)
                 print(f"Removed file: {path}")
 
-def increment_version(setup_py_path="setup.py"):
-    """Increment the patch version in setup.py."""
+def increment_version(version_file="VERSION"):
+    """Increment the patch version in VERSION file."""
     print("Updating version...")
-    path = Path(setup_py_path)
-    if not path.exists():
-        print(f"Error: {setup_py_path} not found.")
+    path = Path(version_file)
+    
+    current_version = get_current_version(version_file)
+    
+    try:
+        parts = current_version.split('.')
+        if len(parts) != 3:
+            raise ValueError
+        major, minor, patch = map(int, parts)
+    except ValueError:
+        print(f"Error: Invalid version format '{current_version}'. Expected 'x.y.z'.")
         sys.exit(1)
         
-    content = path.read_text(encoding="utf-8")
-    # Match version="x.y.z"
-    pattern = r'version="(\d+)\.(\d+)\.(\d+)"'
-    match = re.search(pattern, content)
-    
-    if not match:
-        print("Error: Could not find version string in setup.py (expected format: version=\"x.y.z\")")
-        sys.exit(1)
-    
-    major, minor, patch = map(int, match.groups())
     new_patch = patch + 1
     new_version = f"{major}.{minor}.{new_patch}"
     
-    new_content = re.sub(pattern, f'version="{new_version}"', content)
-    path.write_text(new_content, encoding="utf-8")
-    print(f"Bumped version from {major}.{minor}.{patch} to {new_version}")
+    path.write_text(new_version, encoding="utf-8")
+    print(f"Bumped version from {current_version} to {new_version}")
     return new_version
 
 def build_package():
@@ -67,6 +72,14 @@ def upload_package(token):
     subprocess.check_call(cmd)
 
 def main():
+    parser = argparse.ArgumentParser(description="Build and publish fin-agent to PyPI.")
+    parser.add_argument("-v", "--version", action="store_true", help="Show current version and exit.")
+    args = parser.parse_args()
+
+    if args.version:
+        print(f"Current version: {get_current_version()}")
+        sys.exit(0)
+
     token_file = Path(".pypitoken")
     if not token_file.exists():
         print("Error: .pypitoken file not found.")
