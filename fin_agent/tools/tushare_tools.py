@@ -131,6 +131,166 @@ def get_income_statement(ts_code, start_date=None, end_date=None):
     except Exception as e:
         return f"Error fetching income statement: {str(e)}"
 
+def get_index_daily(ts_code, start_date=None, end_date=None):
+    """
+    Get daily index market data (e.g. 000001.SH, 399001.SZ).
+    """
+    if not start_date:
+        start_date = (datetime.now() - timedelta(days=30)).strftime('%Y%m%d')
+    if not end_date:
+        end_date = datetime.now().strftime('%Y%m%d')
+    
+    try:
+        pro = get_pro()
+        df = pro.index_daily(ts_code=ts_code, start_date=start_date, end_date=end_date)
+        if df.empty:
+            return f"No index data found for {ts_code}."
+        df = df.sort_values('trade_date', ascending=False)
+        return df.to_json(orient='records', force_ascii=False)
+    except Exception as e:
+        return f"Error fetching index daily: {str(e)}"
+
+def get_moneyflow(ts_code, start_date=None, end_date=None):
+    """
+    Get stock money flow (buy/sell volume by order size).
+    """
+    if not start_date:
+        start_date = (datetime.now() - timedelta(days=7)).strftime('%Y%m%d')
+    if not end_date:
+        end_date = datetime.now().strftime('%Y%m%d')
+        
+    try:
+        pro = get_pro()
+        df = pro.moneyflow(ts_code=ts_code, start_date=start_date, end_date=end_date)
+        if df.empty:
+            return f"No money flow data found for {ts_code}."
+        df = df.sort_values('trade_date', ascending=False)
+        return df.to_json(orient='records', force_ascii=False)
+    except Exception as e:
+        return f"Error fetching money flow (check permission/points): {str(e)}"
+
+def get_hsgt_top10(trade_date=None):
+    """
+    Get Northbound/Southbound top 10 turnover.
+    """
+    if not trade_date:
+        # Tushare data might delay, try yesterday if today is empty or just let user specify
+        trade_date = datetime.now().strftime('%Y%m%d')
+    
+    try:
+        pro = get_pro()
+        df = pro.hsgt_top10(trade_date=trade_date)
+        if df.empty:
+            # Try previous trading day if empty (simple retry logic)
+            prev_date = (datetime.strptime(trade_date, '%Y%m%d') - timedelta(days=1)).strftime('%Y%m%d')
+            df = pro.hsgt_top10(trade_date=prev_date)
+            if df.empty:
+                 return f"No HSGT top 10 data found for {trade_date} or {prev_date}."
+        return df.to_json(orient='records', force_ascii=False)
+    except Exception as e:
+        return f"Error fetching HSGT top 10: {str(e)}"
+
+def get_limit_list(trade_date=None):
+    """
+    Get daily limit up/down list.
+    """
+    if not trade_date:
+        trade_date = datetime.now().strftime('%Y%m%d')
+    
+    try:
+        pro = get_pro()
+        df = pro.limit_list(trade_date=trade_date)
+        if df.empty:
+             return f"No limit list data found for {trade_date}."
+        return df.to_json(orient='records', force_ascii=False)
+    except Exception as e:
+        return f"Error fetching limit list: {str(e)}"
+
+def get_top_list(trade_date=None):
+    """
+    Get daily dragon and tiger list.
+    """
+    if not trade_date:
+        trade_date = datetime.now().strftime('%Y%m%d')
+        
+    try:
+        pro = get_pro()
+        df = pro.top_list(trade_date=trade_date)
+        if df.empty:
+            return f"No top list data found for {trade_date}."
+        return df.to_json(orient='records', force_ascii=False)
+    except Exception as e:
+        return f"Error fetching top list: {str(e)}"
+
+def get_forecast(ts_code, start_date=None, end_date=None):
+    """
+    Get financial forecast.
+    """
+    if not start_date:
+        start_date = (datetime.now() - timedelta(days=180)).strftime('%Y%m%d') # Last 6 months
+    if not end_date:
+        end_date = datetime.now().strftime('%Y%m%d')
+        
+    try:
+        pro = get_pro()
+        df = pro.forecast(ts_code=ts_code, start_date=start_date, end_date=end_date)
+        if df.empty:
+            return f"No forecast data found for {ts_code}."
+        df = df.sort_values('ann_date', ascending=False)
+        return df.to_json(orient='records', force_ascii=False)
+    except Exception as e:
+        return f"Error fetching forecast: {str(e)}"
+
+def get_concept_detail(concept_name=None, ts_code=None):
+    """
+    Get stocks in a concept or concepts of a stock.
+    Supports fuzzy search for concept name.
+    """
+    try:
+        pro = get_pro()
+        
+        # If searching for what concepts a stock belongs to
+        if ts_code:
+            df = pro.concept_detail(ts_code=ts_code)
+            if df.empty:
+                return f"No concept data found for stock {ts_code}."
+            return df.to_json(orient='records', force_ascii=False)
+            
+        # If searching for stocks in a concept
+        if concept_name:
+            # First need to find concept ID
+            # This is heavy, maybe optimization needed later. 
+            # We fetch all concepts and filter.
+            concepts = pro.concept()
+            matched = concepts[concepts['name'].str.contains(concept_name)]
+            
+            if matched.empty:
+                return f"No concept found matching '{concept_name}'."
+            
+            # If multiple matches, return list of potential matches or just the first one
+            if len(matched) > 1:
+                # If exact match exists, prefer it
+                exact = matched[matched['name'] == concept_name]
+                if not exact.empty:
+                    concept_id = exact.iloc[0]['code']
+                else:
+                    # Just pick first or return list of names to ask user clarification
+                    # For simplicity, we pick first but warn
+                    concept_id = matched.iloc[0]['code']
+            else:
+                concept_id = matched.iloc[0]['code']
+                
+            # Get stocks for this concept
+            df = pro.concept_detail(id=concept_id)
+            if df.empty:
+                 return f"No stocks found for concept {concept_name} (ID: {concept_id})."
+            return df.to_json(orient='records', force_ascii=False)
+
+        return "Error: Please provide either concept_name or ts_code."
+        
+    except Exception as e:
+        return f"Error fetching concept detail: {str(e)}"
+
 # Tool definitions for LLM
 TOOLS_SCHEMA = [
     {
@@ -257,6 +417,153 @@ TOOLS_SCHEMA = [
                 "required": ["ts_code"]
             }
         }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_index_daily",
+            "description": "Get daily index market data (e.g. 000001.SH for Shanghai Composite, 399001.SZ for Shenzhen Component).",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "ts_code": {
+                        "type": "string",
+                        "description": "The index code (e.g., '000001.SH', '399001.SZ')."
+                    },
+                    "start_date": {
+                        "type": "string",
+                        "description": "Start date (YYYYMMDD)."
+                    },
+                    "end_date": {
+                        "type": "string",
+                        "description": "End date (YYYYMMDD)."
+                    }
+                },
+                "required": ["ts_code"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_moneyflow",
+            "description": "Get stock money flow data (buy/sell volume by order size). Useful for analyzing fund movement.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "ts_code": {
+                        "type": "string",
+                        "description": "The stock code (e.g., '000001.SZ')."
+                    },
+                    "start_date": {
+                        "type": "string",
+                        "description": "Start date (YYYYMMDD)."
+                    },
+                    "end_date": {
+                        "type": "string",
+                        "description": "End date (YYYYMMDD)."
+                    }
+                },
+                "required": ["ts_code"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_hsgt_top10",
+            "description": "Get top 10 turnover stocks for Northbound (Shanghai/Shenzhen-Hong Kong Connect) trading.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "trade_date": {
+                        "type": "string",
+                        "description": "Trade date (YYYYMMDD)."
+                    }
+                },
+                "required": []
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_limit_list",
+            "description": "Get the list of stocks that hit the daily limit up or down.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "trade_date": {
+                        "type": "string",
+                        "description": "Trade date (YYYYMMDD)."
+                    }
+                },
+                "required": []
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_top_list",
+            "description": "Get the Dragon and Tiger list (daily active/volatile stocks with detailed seat info).",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "trade_date": {
+                        "type": "string",
+                        "description": "Trade date (YYYYMMDD)."
+                    }
+                },
+                "required": []
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_forecast",
+            "description": "Get financial forecast/guidance published by the company.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "ts_code": {
+                        "type": "string",
+                        "description": "The stock code (e.g., '000001.SZ')."
+                    },
+                    "start_date": {
+                        "type": "string",
+                        "description": "Announcement start date (YYYYMMDD)."
+                    },
+                    "end_date": {
+                        "type": "string",
+                        "description": "Announcement end date (YYYYMMDD)."
+                    }
+                },
+                "required": ["ts_code"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_concept_detail",
+            "description": "Get stocks belonging to a specific concept (by name) OR get concepts for a specific stock (by code).",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "concept_name": {
+                        "type": "string",
+                        "description": "The concept name (e.g., 'Sora概念', '锂电池'). Fuzzy matching supported."
+                    },
+                    "ts_code": {
+                        "type": "string",
+                        "description": "The stock code (e.g., '000001.SZ'). Use this to see what concepts a stock belongs to."
+                    }
+                },
+                "required": []
+            }
+        }
     }
 ]
 
@@ -280,5 +587,19 @@ def execute_tool_call(tool_name, arguments):
         return get_daily_basic(**arguments)
     elif tool_name == "get_income_statement":
         return get_income_statement(**arguments)
+    elif tool_name == "get_index_daily":
+        return get_index_daily(**arguments)
+    elif tool_name == "get_moneyflow":
+        return get_moneyflow(**arguments)
+    elif tool_name == "get_hsgt_top10":
+        return get_hsgt_top10(**arguments)
+    elif tool_name == "get_limit_list":
+        return get_limit_list(**arguments)
+    elif tool_name == "get_top_list":
+        return get_top_list(**arguments)
+    elif tool_name == "get_forecast":
+        return get_forecast(**arguments)
+    elif tool_name == "get_concept_detail":
+        return get_concept_detail(**arguments)
     else:
         return f"Error: Tool '{tool_name}' not found."

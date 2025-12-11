@@ -24,6 +24,8 @@ class FinAgent:
                                           "For trends and analysis, use 'get_daily_price' to get historical context. "
                                           "For valuation (PE, PB) or market cap, use 'get_daily_basic'. "
                                           "For financial performance (Revenue, Profit), use 'get_income_statement'. "
+                                          "For market index (Shanghai Composite, etc.), use 'get_index_daily'. "
+                                          "For funds flow, limit up/down, or concepts, use the corresponding tools. "
                                           "When analyzing, EXPLICITLY mention the date of the data you are using. "
                                           "Calculate percentage changes and describe the trend (e.g., upward, downward, volatile) based on the data. "
                                           "When you have enough information, answer the user's question directly."},
