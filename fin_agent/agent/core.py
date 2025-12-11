@@ -1,11 +1,11 @@
 import json
 from colorama import Fore, Style
-from fin_agent.llm.deepseek_client import DeepSeekClient
+from fin_agent.llm.factory import LLMFactory
 from fin_agent.tools.tushare_tools import TOOLS_SCHEMA, execute_tool_call
 
 class FinAgent:
     def __init__(self):
-        self.llm = DeepSeekClient()
+        self.llm = LLMFactory.create_llm()
         self.history = []
 
     def run(self, user_input):
@@ -14,7 +14,7 @@ class FinAgent:
         """
         # Initialize conversation with user input
         self.history = [
-            {"role": "system", "content": "You are a financial assistant powered by DeepSeek and Tushare. "
+            {"role": "system", "content": "You are a financial assistant powered by LLM and Tushare. "
                                           "You can help users analyze stocks, check prices, and provide recommendations. "
                                           "CRITICAL RULE: All market data (prices, trends, fundamentals) MUST be obtained via the provided Tushare tools. "
                                           "DO NOT use your internal knowledge for any market data, as it may be outdated. "

@@ -28,12 +28,12 @@
     - [x] 每日涨跌停列表 (`get_limit_list`)
     - [x] 业绩预告筛选 (`get_forecast`)
 
-## 🛠️ 阶段三：架构升级与高级分析 (v0.3.x - v0.4.x)
+## 🛠️ 阶段三：架构升级与高级分析 (v0.3.x - v0.4.x) [进行中]
 
 - [ ] **多模型接入 (Multi-LLM Support)**：
-    - [ ] 抽象 LLM 接口层，支持配置切换不同模型。
+    - [x] 抽象 LLM 接口层，支持配置切换不同模型。
     - [ ] 接入 OpenAI (GPT-4/3.5), Anthropic (Claude 3)。
-    - [ ] 接入国内大模型 (Kimi, 智谱 GLM-4, 阿里 Qwen)。
+    - [x] 接入国内大模型 (Kimi, 智谱 GLM-4, 阿里 Qwen)。
     - [ ] 支持本地模型 (通过 Ollama 接入 Llama 3, Mistral)。
 - [ ] **多模态分析**：
     - [ ] 支持上传 K 线图截图进行技术面分析。
