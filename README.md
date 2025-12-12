@@ -1,5 +1,15 @@
 # Fin-Agent: 智能金融分析助手
 
+<div align="center">
+
+[![PyPI version](https://img.shields.io/pypi/v/fin-agent.svg?style=flat-square)](https://pypi.org/project/fin-agent/)
+[![Python Versions](https://img.shields.io/pypi/pyversions/fin-agent.svg?style=flat-square)](https://pypi.org/project/fin-agent/)
+[![License](https://img.shields.io/github/license/YUHAI0/fin-agent.svg?style=flat-square)](https://github.com/YUHAI0/fin-agent/blob/main/LICENSE)
+[![Repo Size](https://img.shields.io/github/repo-size/YUHAI0/fin-agent.svg?style=flat-square)](https://github.com/YUHAI0/fin-agent)
+[![Last Commit](https://img.shields.io/github/last-commit/YUHAI0/fin-agent.svg?style=flat-square)](https://github.com/YUHAI0/fin-agent/commits/main)
+
+</div>
+
 Fin-Agent 是一个基于 **DeepSeek** 等大模型和 **Tushare** 金融数据的智能金融分析代理。它能够通过自然语言交互，帮助用户查询股票行情、分析财务数据、获取市场指标、**选股筛选**以及**策略回测**，并提供投资参考建议。
 
 ## ✨ 主要功能
