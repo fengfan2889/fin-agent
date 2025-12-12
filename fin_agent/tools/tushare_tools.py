@@ -4,6 +4,7 @@ from fin_agent.config import Config
 import json
 from datetime import datetime, timedelta
 from fin_agent.tools.technical_indicators import get_technical_indicators, get_technical_patterns
+from fin_agent.backtest import run_backtest
 
 # Initialize Tushare - will be re-initialized when called if Config updates
 def get_pro():
@@ -744,10 +745,45 @@ TOOLS_SCHEMA = [
                     "dv_min": {"type": "number", "description": "Minimum Dividend Yield (%). e.g., 3 for >3%."},
                     "turnover_min": {"type": "number", "description": "Minimum Turnover Rate (%)."},
                     "turnover_max": {"type": "number", "description": "Maximum Turnover Rate (%)."},
+                    "net_profit_min": {"type": "number", "description": "Minimum Net Main Force Inflow (in 10k/Wan CNY). e.g., 1000 for 1000 Wan."},
                     "industry": {"type": "string", "description": "Industry name to filter by (fuzzy match). e.g., '银行', '半导体'."},
                     "limit": {"type": "integer", "description": "Max number of results to return. Default 20."}
                 },
                 "required": []
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "run_backtest",
+            "description": "Run a historical backtest for a trading strategy on a specific stock.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "ts_code": {
+                        "type": "string",
+                        "description": "The stock code (e.g., '000001.SZ')."
+                    },
+                    "strategy": {
+                        "type": "string",
+                        "enum": ["ma_cross", "macd", "rsi"],
+                        "description": "Strategy type. 'ma_cross' (Moving Average Crossover), 'macd' (MACD Cross), 'rsi' (RSI Reversal)."
+                    },
+                    "start_date": {
+                        "type": "string",
+                        "description": "Backtest start date (YYYYMMDD). Defaults to 1 year ago."
+                    },
+                    "end_date": {
+                        "type": "string",
+                        "description": "Backtest end date (YYYYMMDD). Defaults to today."
+                    },
+                    "params": {
+                        "type": "object",
+                        "description": "Strategy parameters. e.g., {'short_window': 5, 'long_window': 20} for ma_cross."
+                    }
+                },
+                "required": ["ts_code"]
             }
         }
     }
@@ -793,5 +829,7 @@ def execute_tool_call(tool_name, arguments):
         return get_technical_patterns(**arguments)
     elif tool_name == "screen_stocks":
         return screen_stocks(**arguments)
+    elif tool_name == "run_backtest":
+        return run_backtest(**arguments)
     else:
         return f"Error: Tool '{tool_name}' not found."
