@@ -3,6 +3,7 @@ import pandas as pd
 from fin_agent.config import Config
 import json
 from datetime import datetime, timedelta
+from fin_agent.tools.technical_indicators import get_technical_indicators, get_technical_patterns
 
 # Initialize Tushare - will be re-initialized when called if Config updates
 def get_pro():
@@ -564,6 +565,48 @@ TOOLS_SCHEMA = [
                 "required": []
             }
         }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_technical_indicators",
+            "description": "Calculate technical indicators (MACD, RSI, KDJ, BOLL) for a stock. Useful for technical analysis.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "ts_code": {
+                        "type": "string",
+                        "description": "The stock code (e.g., '000001.SZ')."
+                    },
+                    "start_date": {
+                        "type": "string",
+                        "description": "Start date (YYYYMMDD). Optional, defaults to returning recent data."
+                    },
+                    "end_date": {
+                        "type": "string",
+                        "description": "End date (YYYYMMDD). Optional."
+                    }
+                },
+                "required": ["ts_code"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_technical_patterns",
+            "description": "Automatically identify technical patterns (Golden Cross, Dead Cross, Overbought/Oversold, Bollinger Band Break) for a stock based on the latest data.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "ts_code": {
+                        "type": "string",
+                        "description": "The stock code (e.g., '000001.SZ')."
+                    }
+                },
+                "required": ["ts_code"]
+            }
+        }
     }
 ]
 
@@ -601,5 +644,9 @@ def execute_tool_call(tool_name, arguments):
         return get_forecast(**arguments)
     elif tool_name == "get_concept_detail":
         return get_concept_detail(**arguments)
+    elif tool_name == "get_technical_indicators":
+        return get_technical_indicators(**arguments)
+    elif tool_name == "get_technical_patterns":
+        return get_technical_patterns(**arguments)
     else:
         return f"Error: Tool '{tool_name}' not found."

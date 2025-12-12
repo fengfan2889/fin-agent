@@ -31,6 +31,7 @@ class Config:
             config_dir = os.path.join(base_dir, app_name)
         else:
             # Linux/Mac (XDG standard)
+            # Default to ~/.config/fin-agent/.env
             base_dir = os.getenv("XDG_CONFIG_HOME", os.path.expanduser("~/.config"))
             config_dir = os.path.join(base_dir, app_name)
             

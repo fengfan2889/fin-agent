@@ -43,6 +43,8 @@ class FinAgent:
                                           "For valuation (PE, PB) or market cap, use 'get_daily_basic'. "
                                           "For financial performance (Revenue, Profit), use 'get_income_statement'. "
                                           "For market index (Shanghai Composite, etc.), use 'get_index_daily'. "
+                                          "For technical analysis (MACD, RSI, KDJ, BOLL), use 'get_technical_indicators'. "
+                                          "To check for technical patterns (Golden Cross, Overbought, etc.), use 'get_technical_patterns'. "
                                           "For funds flow, limit up/down, or concepts, use the corresponding tools. "
                                           "When analyzing, EXPLICITLY mention the date of the data you are using. "
                                           "Calculate percentage changes and describe the trend (e.g., upward, downward, volatile) based on the data. "
