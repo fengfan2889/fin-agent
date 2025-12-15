@@ -5,6 +5,13 @@ import json
 from datetime import datetime, timedelta
 from fin_agent.tools.technical_indicators import get_technical_indicators, get_technical_patterns
 from fin_agent.backtest import run_backtest
+from fin_agent.tools.portfolio_tools import (
+    PORTFOLIO_TOOLS_SCHEMA, 
+    add_portfolio_position, 
+    remove_portfolio_position, 
+    get_portfolio_status, 
+    clear_portfolio
+)
 
 # Initialize Tushare - will be re-initialized when called if Config updates
 def get_pro():
@@ -413,7 +420,7 @@ def screen_stocks(pe_min=None, pe_max=None, pb_min=None, pb_max=None,
         return f"Error executing stock screen: {str(e)}"
 
 # Tool definitions for LLM
-TOOLS_SCHEMA = [
+BASE_TOOLS_SCHEMA = [
     {
         "type": "function",
         "function": {
@@ -789,6 +796,9 @@ TOOLS_SCHEMA = [
     }
 ]
 
+# Combine schemas
+TOOLS_SCHEMA = BASE_TOOLS_SCHEMA + PORTFOLIO_TOOLS_SCHEMA
+
 # Helper to execute tool calls
 def execute_tool_call(tool_name, arguments):
     if isinstance(arguments, str):
@@ -831,5 +841,13 @@ def execute_tool_call(tool_name, arguments):
         return screen_stocks(**arguments)
     elif tool_name == "run_backtest":
         return run_backtest(**arguments)
+    elif tool_name == "add_portfolio_position":
+        return add_portfolio_position(**arguments)
+    elif tool_name == "remove_portfolio_position":
+        return remove_portfolio_position(**arguments)
+    elif tool_name == "get_portfolio_status":
+        return get_portfolio_status(**arguments)
+    elif tool_name == "clear_portfolio":
+        return clear_portfolio(**arguments)
     else:
         return f"Error: Tool '{tool_name}' not found."

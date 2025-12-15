@@ -49,6 +49,7 @@ class FinAgent:
                                           "For technical analysis (MACD, RSI, KDJ, BOLL), use 'get_technical_indicators'. "
                                           "To check for technical patterns (Golden Cross, Overbought, etc.), use 'get_technical_patterns'. "
                                           "For funds flow, limit up/down, or concepts, use the corresponding tools. "
+                                          "For portfolio management (add/remove position, check status), use the portfolio tools. "
                                           "When analyzing, EXPLICITLY mention the date of the data you are using. "
                                           "Calculate percentage changes and describe the trend (e.g., upward, downward, volatile) based on the data. "
                                           "When you have enough information, answer the user's question directly."},
