@@ -8,6 +8,9 @@ from pathlib import Path
 from fin_agent.config import Config
 from fin_agent.notification import NotificationManager
 
+
+import errno
+
 logger = logging.getLogger(__name__)
 
 class TaskScheduler:
@@ -20,6 +23,7 @@ class TaskScheduler:
             cls._instance = super(TaskScheduler, cls).__new__(cls)
             cls._instance.tasks = {}
             cls._instance.task_file = os.path.join(Config.get_config_dir(), "tasks.json")
+            cls._instance.pid_file = os.path.join(Config.get_config_dir(), "scheduler.pid")
             cls._instance.verbose = False
             cls._instance.load_tasks()
         return cls._instance
@@ -49,7 +53,7 @@ class TaskScheduler:
             logger.error(f"Failed to save tasks: {e}")
 
     def add_price_alert(self, ts_code, operator, threshold, email=None):
-        self.load_tasks() # Ensure we have latest
+        self.load_tasks()
         task_id = f"price_alert_{ts_code}_{int(time.time())}"
         task = {
             "id": task_id,
@@ -99,54 +103,84 @@ class TaskScheduler:
     def check_conditions(self):
         self.load_tasks()
         
-        if getattr(self, 'verbose', False):
-            print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] Worker heartbeat: Checking {len(self.tasks)} tasks...")
-        
-        for task_id, task in list(self.tasks.items()):
-            if not task.get("enabled", True):
+        if self.verbose:
+            print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] Checking {len(self.tasks)} tasks...")
+
+        if not self.tasks:
+            return
+
+        for task_id, task in self.tasks.items():
+            if not task.get('enabled', True):
                 continue
-            
-            if task["type"] == "price_alert":
+                
+            if task['type'] == 'price_alert':
                 self._check_price_alert(task)
 
     def _check_price_alert(self, task):
         from fin_agent.tools.tushare_tools import get_realtime_price
         
-        ts_code = task["ts_code"]
-        operator = task["operator"]
-        threshold = task["threshold"]
-        email = task["email"]
-        
         try:
-            # Note: get_realtime_price returns a JSON string or error message
-            result = get_realtime_price(ts_code)
+            ts_code = task['ts_code']
+            operator = task['operator']
+            threshold = task['threshold']
+            email = task['email']
             
-            if isinstance(result, str) and ("Error" in result or "No realtime data" in result):
-                # Silent fail for transient network issues, but maybe log debug
-                # logger.debug(f"Failed to check price for {ts_code}: {result}")
-                return
-
-            # Parse JSON
-            try:
-                data = json.loads(result)
-            except:
+            # Fetch Price
+            # Note: Tushare limits. We should probably cache this if many tasks watch same stock.
+            # But for simple version, fetch one by one.
+            price_info = get_realtime_price(ts_code)
+            
+            if not price_info:
+                logger.warning(f"Could not get price for {ts_code}")
                 return
                 
-            if not data:
-                return
+            # Parse price (get_realtime_price returns a formatted string or list, 
+            # let's assume it returns a dict-like or we parse the tool output)
+            # Actually tool returns a string. We need internal function to get raw data for robustness.
+            # For now, let's use tushare API directly via tools helper if available, 
+            # OR parse the string. 
+            # Better: use get_realtime_price but we need the float value.
             
-            # Tushare realtime returns list of records
-            record = data[0]
-            current_price = float(record.get('price', 0))
-            stock_name = record.get('name', ts_code)
+            # Re-implementing simple fetch here to avoid parsing the AI-friendly string output of tools
+            import tushare as ts
+            pro = ts.pro_api(Config.TUSHARE_TOKEN)
+            
+            # Use Tushare's standard realtime API if available, otherwise fallback to legacy
+            # NOTE: tushare.pro.realtime_quote is NOT a standard PRO interface.
+            # Tushare PRO uses 'get_realtime_quotes' from legacy 'ts' package for free realtime data (Sina source).
+            # The 'pro' object typically handles historical data.
+            #
+            # The error "请指定正确的接口名" usually means we called a non-existent method on pro_api.
+            # pro.realtime_quote() is likely invalid.
+            #
+            # Let's use the legacy method which works for realtime snapshot.
+            
+            # df = pro.realtime_quote(ts_code=ts_code) # This was causing the error
+            
+            # Using legacy ts.get_realtime_quotes
+            # It expects code like '000001', '600519', no suffix usually, but let's try handling suffix.
+            code_parts = ts_code.split('.')
+            code_no_suffix = code_parts[0]
+            
+            df = ts.get_realtime_quotes(code_no_suffix)
+            
+            if df is None or df.empty:
+                 logger.warning(f"No data for {ts_code}")
+                 return
 
-            if getattr(self, 'verbose', False):
-                print(f"  [Check] {stock_name} ({ts_code}): Current={current_price}, Condition: {operator} {threshold}")
+            # Legacy df columns are: name, open, pre_close, price, high, low, bid, ask, volume, amount, date, time, code
+            current_price = float(df.iloc[0]['price'])
+            
+            if self.verbose:
+                print(f"  [Task {task['id']}] {ts_code}: {current_price} (Target: {operator} {threshold})")
 
+            # Special case for "0" price (suspension or error)
             if current_price == 0:
-                # Sometimes pre-market price is 0 or invalid
                 return
             
+            record = df.iloc[0].to_dict()
+            
+            # Compare
             triggered = False
             if operator == ">" and current_price > threshold:
                 triggered = True
@@ -197,18 +231,72 @@ class TaskScheduler:
                 logger.error(f"Scheduler loop error: {e}")
                 time.sleep(5)
 
+    def _is_worker_running(self):
+        """Check if a worker process is running using PID file."""
+        if not os.path.exists(self.pid_file):
+            return False
+            
+        try:
+            with open(self.pid_file, 'r') as f:
+                content = f.read().strip()
+                if not content:
+                    return False
+                pid = int(content)
+            
+            # Check if process exists
+            try:
+                os.kill(pid, 0) # Signal 0 doesn't kill, just checks existence
+                return True
+            except OSError as e:
+                # Handle specific errors
+                if e.errno == errno.ESRCH: # No such process
+                    logger.info(f"Found stale PID file (PID {pid}), removing...")
+                    try:
+                        os.remove(self.pid_file)
+                    except OSError:
+                        pass # Ignore if already gone
+                    return False
+                elif e.errno == errno.EPERM: # Permission denied (Process exists)
+                    return True
+                else:
+                    # Other error, assume process exists to be safe
+                    logger.warning(f"Error checking PID {pid}: {e}")
+                    return True
+        except Exception as e:
+            logger.error(f"Error checking worker status: {e}")
+            return False
+
     def start(self):
-        if not self._started:
-            t = threading.Thread(target=self.run_scheduler, daemon=True)
-            t.start()
-            self._started = True
-            # print("Background scheduler started.") 
+        """
+        Start the scheduler in a background thread.
+        Will NOT start if a worker process is detected via PID file.
+        """
+        if self._started:
+            return
+
+        if self._is_worker_running():
+            print(f"[{time.strftime('%H:%M:%S')}] Detected active Worker process. Interactive scheduler disabled to avoid duplicates.")
+            return
+
+        t = threading.Thread(target=self.run_scheduler, daemon=True)
+        t.start()
+        self._started = True
+        # print("Background scheduler started.") 
 
     def run_forever(self):
-        """Run the scheduler in blocking mode."""
+        """Run the scheduler in blocking mode (Worker Mode)."""
         print(f"Starting scheduler worker... (Press Ctrl+C to stop)")
         print(f"Task file: {self.task_file}")
         
-        self.verbose = True
-        self.run_scheduler() 
-
+        # Write PID file
+        pid = os.getpid()
+        with open(self.pid_file, 'w') as f:
+            f.write(str(pid))
+            
+        try:
+            self.verbose = True
+            self.run_scheduler()
+        finally:
+            # Clean up PID file on exit
+            if os.path.exists(self.pid_file):
+                os.remove(self.pid_file)
