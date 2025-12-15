@@ -2,7 +2,6 @@ import json
 import os
 from io import StringIO
 from typing import Dict, List, Optional
-from datetime import datetime
 import pandas as pd
 from fin_agent.config import Config
 
@@ -21,12 +20,12 @@ class PortfolioManager:
 
     def _load_portfolio(self) -> Dict:
         if not os.path.exists(self.file_path):
-            return {"positions": {}, "cash": 0.0, "history": []}
+            return {"positions": {}}
         try:
             with open(self.file_path, 'r', encoding='utf-8') as f:
                 return json.load(f)
         except Exception:
-            return {"positions": {}, "cash": 0.0, "history": []}
+            return {"positions": {}}
 
     def _save_portfolio(self):
         with open(self.file_path, 'w', encoding='utf-8') as f:
@@ -60,22 +59,9 @@ class PortfolioManager:
                 "cost": price
             }
         
-        # Deduct cash (assuming infinite cash for now if cash is negative, or track simple cash flow)
-        # For simple management, we just track cash spent/gained, initially 0
-        self.holdings["cash"] = self.holdings.get("cash", 0.0) - (amount * price)
-        
-        # Log transaction
-        self.holdings.setdefault("history", []).append({
-            "date": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-            "action": "BUY",
-            "ts_code": ts_code,
-            "amount": amount,
-            "price": price
-        })
-        
         self.holdings["positions"] = positions
         self._save_portfolio()
-        return f"Successfully added {amount} shares of {ts_code} at {price}."
+        return f"Successfully added {amount} shares of {ts_code} at {price:.2f}."
 
     def remove_position(self, ts_code: str, amount: int, price: float):
         """
@@ -100,21 +86,9 @@ class PortfolioManager:
         else:
             positions[ts_code]["amount"] = current_amount - amount
             
-        # Add cash
-        self.holdings["cash"] = self.holdings.get("cash", 0.0) + (amount * price)
-        
-        # Log transaction
-        self.holdings.setdefault("history", []).append({
-            "date": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-            "action": "SELL",
-            "ts_code": ts_code,
-            "amount": amount,
-            "price": price
-        })
-        
         self.holdings["positions"] = positions
         self._save_portfolio()
-        return f"Successfully sold {amount} shares of {ts_code} at {price}."
+        return f"Successfully sold {amount} shares of {ts_code} at {price:.2f}."
 
     def get_portfolio_status(self):
         """
@@ -167,11 +141,11 @@ class PortfolioManager:
             report.append({
                 "ts_code": ts_code,
                 "amount": amount,
-                "cost": cost,
-                "current_price": current_price,
-                "market_value": market_value,
-                "pnl": pnl,
-                "pnl_pct": pnl_pct
+                "cost": round(cost, 2),
+                "current_price": round(current_price, 2),
+                "market_value": round(market_value, 2),
+                "pnl": round(pnl, 2),
+                "pnl_pct": round(pnl_pct, 2)
             })
             
         total_pnl = total_market_value - total_cost_value
@@ -179,16 +153,15 @@ class PortfolioManager:
         
         summary = {
             "positions": report,
-            "total_market_value": total_market_value,
-            "total_cost_value": total_cost_value,
-            "total_pnl": total_pnl,
-            "total_pnl_pct": total_pnl_pct,
-            "cash": self.holdings.get("cash", 0.0)
+            "total_market_value": round(total_market_value, 2),
+            "total_cost_value": round(total_cost_value, 2),
+            "total_pnl": round(total_pnl, 2),
+            "total_pnl_pct": round(total_pnl_pct, 2)
         }
         
         return summary
 
     def clear_portfolio(self):
-        self.holdings = {"positions": {}, "cash": 0.0, "history": []}
+        self.holdings = {"positions": {}}
         self._save_portfolio()
         return "Portfolio cleared."

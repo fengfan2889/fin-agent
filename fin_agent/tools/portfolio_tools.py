@@ -105,7 +105,7 @@ PORTFOLIO_TOOLS_SCHEMA = [
         "type": "function",
         "function": {
             "name": "clear_portfolio",
-            "description": "Clear all positions and history from the portfolio.",
+            "description": "Clear all positions from the portfolio.",
             "parameters": {
                 "type": "object",
                 "properties": {},
