@@ -5,6 +5,9 @@ from colorama import Fore, Style
 from fin_agent.config import Config
 from fin_agent.llm.factory import LLMFactory
 from fin_agent.tools.tushare_tools import TOOLS_SCHEMA, execute_tool_call
+from fin_agent.utils import FinMarkdown
+from rich.console import Console
+from rich.live import Live
 
 class FinAgent:
     def __init__(self):
@@ -68,7 +71,7 @@ class FinAgent:
                     
                     if stream_mode and inspect.isgenerator(response):
                         # Handle Streaming Response
-                        print(f"{Fore.CYAN}Agent: {Style.RESET_ALL}", end="", flush=True)
+                        print(f"{Fore.CYAN}Agent: {Style.RESET_ALL}")
                         
                         full_content = ""
                         stream_interrupted = False
@@ -77,6 +80,26 @@ class FinAgent:
                         buffer = ""
                         thinking_state = False
                         
+                        # Markdown Live State
+                        live_md = None
+                        md_buffer = ""
+
+                        def update_md(text):
+                            nonlocal live_md, md_buffer
+                            md_buffer += text
+                            if live_md is None:
+                                live_md = Live(FinMarkdown(md_buffer), auto_refresh=True)
+                                live_md.start()
+                            else:
+                                live_md.update(FinMarkdown(md_buffer))
+                        
+                        def stop_md():
+                            nonlocal live_md, md_buffer
+                            if live_md:
+                                live_md.stop()
+                                live_md = None
+                                md_buffer = ""
+
                         try:
                             for chunk in response:
                                 if chunk['type'] == 'content':
@@ -91,8 +114,11 @@ class FinAgent:
                                                 # Split content before <think>
                                                 pre, buffer = buffer.split("<think>", 1)
                                                 if pre:
-                                                    print(pre, end="", flush=True)
+                                                    update_md(pre)
                                                 
+                                                # Stop markdown before switching to thinking
+                                                stop_md()
+
                                                 # Switch to thinking style
                                                 print(f"{Style.DIM}{Fore.YELLOW}", end="", flush=True)
                                                 thinking_state = True
@@ -105,7 +131,7 @@ class FinAgent:
                                                 # Print safe part
                                                 to_print = buffer[:-6]
                                                 buffer = buffer[-6:]
-                                                print(to_print, end="", flush=True)
+                                                update_md(to_print)
                                                 break
                                         
                                         else: # thinking_state is True
@@ -139,7 +165,13 @@ class FinAgent:
                             
                             # Print remaining buffer
                             if buffer:
-                                print(buffer, end="", flush=True)
+                                if thinking_state:
+                                    print(buffer, end="", flush=True)
+                                    print(Style.RESET_ALL, end="", flush=True)
+                                else:
+                                    update_md(buffer)
+                            
+                            stop_md()
                             
                             # Ensure reset if still thinking (unlikely for well-formed output)
                             if thinking_state:
@@ -147,6 +179,7 @@ class FinAgent:
                                 
                         except KeyboardInterrupt:
                             stream_interrupted = True
+                            stop_md()
                             print(f"{Style.RESET_ALL}\n{Fore.YELLOW}[Output interrupted]{Style.RESET_ALL}")
                         
                         if stream_interrupted:
@@ -176,6 +209,11 @@ class FinAgent:
                     if stream_mode:
                         return "" # Already printed
                     else:
+                        return "" # Already printed (via Console().print above) or we return it? 
+                        # The original code returned answer if not stream_mode.
+                        # But main.py likely prints the return value.
+                        # Let's check main.py usage.
+                        # Original: return answer
                         return answer
 
                 # Handle tool calls

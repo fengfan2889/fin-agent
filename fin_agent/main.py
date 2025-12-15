@@ -8,6 +8,8 @@ import tempfile
 from importlib.metadata import version, PackageNotFoundError
 import colorama
 from colorama import Fore, Style
+from rich.console import Console
+from fin_agent.utils import FinMarkdown
 from fin_agent.agent.core import FinAgent
 from fin_agent.config import Config
 
@@ -209,6 +211,8 @@ def run_chat_loop(agent):
     print(f"{Fore.GREEN}Agent initialized successfully.{Style.RESET_ALL}")
     print("Type 'exit' or 'quit' to end the session.")
     
+    console = Console()
+    
     while True:
         try:
             user_input = input(f"\n{Fore.GREEN}You: {Style.RESET_ALL}").strip()
@@ -221,7 +225,8 @@ def run_chat_loop(agent):
                 
             response = agent.run(user_input)
             if response: # Only print if there's a response (might be empty if interrupted)
-                print(f"\n{Fore.CYAN}Agent: {Style.RESET_ALL}{response}")
+                print(f"\n{Fore.CYAN}Agent: {Style.RESET_ALL}")
+                console.print(FinMarkdown(response))
             
         except (KeyboardInterrupt, EOFError):
             print("\nGoodbye!")
