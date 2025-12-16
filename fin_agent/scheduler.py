@@ -10,6 +10,8 @@ from fin_agent.notification import NotificationManager
 
 
 import errno
+import logging
+import platform
 
 logger = logging.getLogger(__name__)
 
@@ -232,11 +234,11 @@ class TaskScheduler:
             else:
                 logger.error(f"Error checking task {task['id']}: {e}")
 
-    def run_scheduler(self):
-        # Schedule the check every 1 minute
+    def run_scheduler(self, cycle=10):
+        # Schedule the check every cycle minutes
         # For stricter timing, we could do every 10 seconds, but Tushare has rate limits.
-        # 1 minute is safe.
-        schedule.every(1).minutes.do(self.check_conditions)
+        # Default is 10 minutes.
+        schedule.every(cycle).minutes.do(self.check_conditions)
         
         last_heartbeat = 0
         
@@ -288,6 +290,53 @@ class TaskScheduler:
             # Note: This means if the user is running an OLD version of the worker
             # that doesn't update mtime, this will return False, and we will start
             # a duplicate scheduler. This is a safe degradation compared to killing the process.
+            
+            # If it's stale (older than 20s), we should check if the process actually exists
+            try:
+                with open(self.pid_file, 'r') as f:
+                    pid = int(f.read().strip())
+                
+                # Check process existence
+                if platform.system() == "Windows":
+                    # Windows
+                    # OpenProcess(PROCESS_QUERY_INFORMATION, False, pid)
+                    # or just try tasklist / psutil. 
+                    # Simpler: os.kill(pid, 0) works on Windows to check existence (permissions aside)
+                    # But Python's os.kill on Windows does TerminateProcess if signal is not 0?
+                    # No, os.kill(pid, 0) is supported on Windows since Python 2.7 to check validity.
+                    os.kill(pid, 0)
+                else:
+                    # Unix
+                    os.kill(pid, 0)
+                    
+                # If we get here, process exists but hasn't updated heartbeat.
+                # Maybe it's stuck. We still treat it as "running" to be safe?
+                # Or if it is VERY old, we assume dead? 
+                # Let's trust the heartbeat. If heartbeat failed, worker might be frozen.
+                # But here we just want to know if we should clean up the PID file.
+                return False # It exists but is frozen/stale heartbeat. 
+                             # Actually, if it exists, we shouldn't delete the PID file blindly.
+                             
+            except OSError:
+                # Process does not exist
+                logger.warning(f"Found stale PID file (PID {pid} not running). Removing.")
+                try:
+                    # Force remove just in case
+                    if os.path.exists(self.pid_file):
+                         os.remove(self.pid_file)
+                         logger.warning(f"Removed stale PID file: {self.pid_file}")
+                except Exception as e:
+                    logger.error(f"Failed to remove stale PID file: {e}")
+                return False
+            except Exception:
+                # Reading PID failed, maybe file is empty or corrupted
+                try:
+                    if os.path.exists(self.pid_file):
+                         os.remove(self.pid_file)
+                except:
+                    pass
+                return False
+            
             return False
             
         except Exception as e:
@@ -308,14 +357,14 @@ class TaskScheduler:
             # print(f"[{time.strftime('%H:%M:%S')}] Detected active Worker process. Interactive scheduler disabled to avoid duplicates.")
             return
 
-        t = threading.Thread(target=self.run_scheduler, daemon=True)
+        t = threading.Thread(target=self.run_scheduler, args=(10,), daemon=True)
         t.start()
         self._started = True
         # print("Background scheduler started.") 
 
-    def run_forever(self):
+    def run_forever(self, cycle=10):
         """Run the scheduler in blocking mode (Worker Mode)."""
-        print(f"Starting scheduler worker... (Press Ctrl+C to stop)")
+        print(f"Starting scheduler worker (interval: {cycle}m)... (Press Ctrl+C to stop)")
         print(f"Task file: {self.task_file}")
         
         # Write PID file
@@ -325,7 +374,7 @@ class TaskScheduler:
             
         try:
             self.verbose = True
-            self.run_scheduler()
+            self.run_scheduler(cycle=cycle)
         except KeyboardInterrupt:
             print("\nWorker stopped by user.")
         except Exception as e:

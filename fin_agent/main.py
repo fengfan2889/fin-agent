@@ -5,6 +5,9 @@ import re
 import os
 import platform
 import tempfile
+import csv
+import io
+import signal
 from importlib.metadata import version, PackageNotFoundError
 import colorama
 from colorama import Fore, Style
@@ -97,9 +100,118 @@ def post_upgrade_hook():
     except Exception as e:
         print(f"{Fore.RED}Error in post-upgrade hook: {e}{Style.RESET_ALL}")
 
+def check_and_kill_processes():
+    """
+    Check for other running fin-agent processes and ask user to kill them.
+    Returns True if safe to proceed (processes killed or none found), False if user cancelled.
+    """
+    current_pid = os.getpid()
+    pids = []
+    
+    try:
+        if platform.system() == "Windows":
+            # Windows implementation using PowerShell (WMIC is deprecated/missing on some systems)
+            # We look for *fin-agent* (exe/script) or *fin_agent* (module)
+            ps_cmd = (
+                'Get-CimInstance Win32_Process | '
+                'Where-Object { $_.CommandLine -like "*fin-agent*" -or $_.CommandLine -like "*fin_agent*" } | '
+                'Select-Object ProcessId, CommandLine | '
+                'ConvertTo-Csv -NoTypeInformation'
+            )
+            
+            try:
+                # Use shell=False and list of args for safety and to avoid cmd.exe parsing issues
+                cmd = ['powershell', '-NoProfile', '-Command', ps_cmd]
+                output = subprocess.check_output(cmd, text=True)
+                
+                # Clean up empty lines for CSV reader
+                output_lines = [line.strip() for line in output.splitlines() if line.strip()]
+                if output_lines:
+                    reader = csv.DictReader(output_lines)
+                    for row in reader:
+                        try:
+                            pid = int(row.get('ProcessId', row.get('Node', '0')))
+                            cmdline = row.get('CommandLine', '')
+                            
+                            # Filter out the PowerShell query itself if captured
+                            if "Get-CimInstance" in cmdline:
+                                continue
+                                
+                            if pid != current_pid and pid != 0:
+                                pids.append((pid, cmdline))
+                        except ValueError:
+                            continue
+            except subprocess.CalledProcessError:
+                pass # No processes found or error
+            except FileNotFoundError:
+                 # Powershell might not be in PATH (unlikely on modern Windows)
+                 pass
+                
+        else:
+            # Unix/Linux/Mac implementation using pgrep
+            try:
+                # pgrep -f -l "fin-agent"
+                # -f matches against full command line
+                # -l lists PID and process name (command line)
+                cmd = ["pgrep", "-f", "-l", "fin-agent"]
+                output = subprocess.check_output(cmd).decode('utf-8')
+                for line in output.splitlines():
+                    parts = line.strip().split(maxsplit=1)
+                    if len(parts) >= 1:
+                        pid = int(parts[0])
+                        # If pgrep -l returns name, cmdline might be parts[1] if available
+                        cmdline = parts[1] if len(parts) > 1 else "fin-agent"
+                        
+                        # Exclude build/test processes or the upgrade command itself if pgrep matches broadly
+                        # But current_pid check handles the main one.
+                        if pid != current_pid:
+                            pids.append((pid, cmdline))
+            except subprocess.CalledProcessError:
+                pass # pgrep returns non-zero if no process found
+                
+    except Exception as e:
+        print(f"{Fore.YELLOW}Warning: Could not check for running processes: {e}{Style.RESET_ALL}")
+        # Proceed anyway if we can't check
+        return True
+
+    if not pids:
+        return True
+        
+    print(f"\n{Fore.YELLOW}Found the following running fin-agent processes:{Style.RESET_ALL}")
+    for pid, cmd in pids:
+        # Truncate long command lines
+        display_cmd = (cmd[:90] + '...') if len(cmd) > 90 else cmd
+        print(f"  PID: {pid:<6} {display_cmd}")
+        
+    print(f"\n{Fore.RED}These processes should be stopped before upgrading.{Style.RESET_ALL}")
+    choice = input(f"Do you want to terminate them now? (y/n): ").strip().lower()
+    
+    if choice == 'y':
+        for pid, _ in pids:
+            try:
+                print(f"Terminating PID {pid}...")
+                if platform.system() == "Windows":
+                     subprocess.call(['taskkill', '/F', '/PID', str(pid)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                else:
+                     os.kill(pid, signal.SIGTERM)
+            except Exception as e:
+                print(f"{Fore.RED}Failed to kill PID {pid}: {e}{Style.RESET_ALL}")
+        
+        # Give them a moment to die
+        import time
+        time.sleep(1)
+        return True
+    else:
+        print(f"{Fore.RED}Upgrade cancelled by user.{Style.RESET_ALL}")
+        return False
+
 def upgrade_package():
     package_name = "fin-agent"
     
+    # Check for running instances
+    if not check_and_kill_processes():
+        return
+
     try:
         current_v_str = version(package_name)
     except PackageNotFoundError:
@@ -273,6 +385,7 @@ def main():
     parser.add_argument("--clear-token", action="store_true", help="Clear the existing configuration token and exit.")
     parser.add_argument("--upgrade", action="store_true", help="Upgrade fin-agent to the latest version.")
     parser.add_argument("--worker", action="store_true", help="Run in worker mode (scheduler only, no chat interface).")
+    parser.add_argument("--cycle", type=int, default=10, help="Scheduler interval in minutes (default: 10, only for worker mode).")
     
     args = parser.parse_args()
 
@@ -306,7 +419,7 @@ def main():
             return
 
         scheduler = TaskScheduler()
-        scheduler.run_forever()
+        scheduler.run_forever(cycle=args.cycle)
         return
 
     print(f"{Fore.GREEN}Welcome to Fin-Agent (v{get_version()})!{Style.RESET_ALL}")
