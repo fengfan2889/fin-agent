@@ -138,6 +138,9 @@ def check_and_kill_processes():
                                 continue
                                 
                             if pid != current_pid and pid != 0:
+                                # Exclude the upgrade command itself (e.g. wrapper process)
+                                if "upgrade" in cmdline.lower():
+                                    continue
                                 pids.append((pid, cmdline))
                         except ValueError:
                             continue
@@ -165,6 +168,8 @@ def check_and_kill_processes():
                         # Exclude build/test processes or the upgrade command itself if pgrep matches broadly
                         # But current_pid check handles the main one.
                         if pid != current_pid:
+                            if "upgrade" in cmdline.lower():
+                                continue
                             pids.append((pid, cmdline))
             except subprocess.CalledProcessError:
                 pass # pgrep returns non-zero if no process found
