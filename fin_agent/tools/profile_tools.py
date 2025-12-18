@@ -1,14 +1,20 @@
 import json
 from fin_agent.user_profile import UserProfileManager
 
-# Global instance
-profile_manager = UserProfileManager()
+# Global instance - lazy init to avoid startup crashes
+_profile_manager = None
+
+def get_profile_manager():
+    global _profile_manager
+    if _profile_manager is None:
+        _profile_manager = UserProfileManager()
+    return _profile_manager
 
 def update_user_profile(risk_tolerance=None, investment_horizon=None, favorite_sectors=None, avoid_sectors=None, investment_style=None):
     """
     Update the user's investment profile and preferences.
     """
-    return profile_manager.update_profile(
+    return get_profile_manager().update_profile(
         risk_tolerance=risk_tolerance,
         investment_horizon=investment_horizon,
         favorite_sectors=favorite_sectors,
@@ -20,7 +26,7 @@ def get_user_profile():
     """
     Get the current user profile settings.
     """
-    return json.dumps(profile_manager.get_profile(), ensure_ascii=False, indent=2)
+    return json.dumps(get_profile_manager().get_profile(), ensure_ascii=False, indent=2)
 
 # Tool definitions
 PROFILE_TOOLS_SCHEMA = [
