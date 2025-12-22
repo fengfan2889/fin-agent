@@ -282,9 +282,6 @@ class FinAgent:
                                     # Yield the tool call chunk to frontend for real-time update
                                     yield chunk
 
-                                    # Yield the tool call chunk to frontend for real-time update
-                                    yield chunk
-
                                 elif chunk['type'] == 'response':
                                     debug_print("Received final response object", file=sys.stderr)
                                     message = chunk['response']
