@@ -1,5 +1,6 @@
 import os
 import sys
+import json
 import platform
 from pathlib import Path
 from dotenv import load_dotenv
@@ -18,6 +19,9 @@ class Config:
     OPENAI_API_KEY = None
     OPENAI_BASE_URL = None
     OPENAI_MODEL = None
+    
+    # App Config
+    WAKE_UP_SHORTCUT = None
     
     # Email Config
     EMAIL_SMTP_SERVER = None
@@ -46,19 +50,55 @@ class Config:
 
     @staticmethod
     def get_env_path():
-        """Get the full path to the .env file."""
-        return os.path.join(Config.get_config_dir(), ".env")
+        """Get the full path to the .env file in the user config directory."""
+        config_dir = Config.get_config_dir()
+        if not os.path.exists(config_dir):
+            try:
+                os.makedirs(config_dir, exist_ok=True)
+            except Exception:
+                pass
+        return os.path.join(config_dir, ".env")
+
+    @staticmethod
+    def get_app_config_path():
+        """Get the full path to the app_config.json file."""
+        config_dir = Config.get_config_dir()
+        if not os.path.exists(config_dir):
+            try:
+                os.makedirs(config_dir, exist_ok=True)
+            except Exception:
+                pass
+        return os.path.join(config_dir, "app_config.json")
+
+    @classmethod
+    def load_app_config(cls):
+        """Load application specific configuration from JSON."""
+        config_path = cls.get_app_config_path()
+        if os.path.exists(config_path):
+            try:
+                with open(config_path, 'r', encoding='utf-8') as f:
+                    return json.load(f)
+            except Exception:
+                pass
+        return {}
+
+    @classmethod
+    def save_app_config(cls, config_data):
+        """Save application specific configuration to JSON."""
+        config_path = cls.get_app_config_path()
+        try:
+            current_config = cls.load_app_config()
+            current_config.update(config_data)
+            with open(config_path, 'w', encoding='utf-8') as f:
+                json.dump(current_config, f, indent=2)
+        except Exception as e:
+            print(f"Failed to save app config: {e}")
 
     @classmethod
     def load(cls):
         # Explicitly define path to ensure we are loading the right file
         env_path = cls.get_env_path()
         
-        # Also try loading from current directory for local overrides/dev
-        local_env = os.path.join(os.getcwd(), ".env")
-        if os.path.exists(local_env):
-            load_dotenv(local_env, override=True)
-            
         # Load from user config dir
         if os.path.exists(env_path):
             load_dotenv(env_path, override=True)
@@ -74,6 +114,14 @@ class Config:
         cls.OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
         cls.OPENAI_BASE_URL = os.getenv("OPENAI_BASE_URL")
         cls.OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-3.5-turbo")
+        
+        # Load app config
+        app_config = cls.load_app_config()
+        cls.WAKE_UP_SHORTCUT = app_config.get("wake_up_shortcut")
+        
+        # Fallback to env if not in json (migration)
+        if not cls.WAKE_UP_SHORTCUT:
+             cls.WAKE_UP_SHORTCUT = os.getenv("WAKE_UP_SHORTCUT", "Ctrl+Alt+Q")
         
         cls.EMAIL_SMTP_SERVER = os.getenv("EMAIL_SMTP_SERVER")
         cls.EMAIL_SMTP_PORT = int(os.getenv("EMAIL_SMTP_PORT", "465")) if os.getenv("EMAIL_SMTP_PORT") else 465
@@ -163,7 +211,7 @@ class Config:
         return True
 
     @classmethod
-    def update_core_config(cls, tushare_token, provider, deepseek_key, deepseek_base, deepseek_model, openai_key, openai_base, openai_model):
+    def update_core_config(cls, tushare_token, provider, deepseek_key, deepseek_base, deepseek_model, openai_key, openai_base, openai_model, wake_up_shortcut):
         """Update core configuration (Tushare & LLM) in the .env file."""
         env_file = cls.get_env_path()
         
@@ -177,7 +225,8 @@ class Config:
         # Actually it's safer to filter OUT the ones we are replacing.
         keys_to_remove = ["TUSHARE_TOKEN", "LLM_PROVIDER", 
                           "DEEPSEEK_API_KEY", "DEEPSEEK_BASE_URL", "DEEPSEEK_MODEL",
-                          "OPENAI_API_KEY", "OPENAI_BASE_URL", "OPENAI_MODEL"]
+                          "OPENAI_API_KEY", "OPENAI_BASE_URL", "OPENAI_MODEL",
+                          "WAKE_UP_SHORTCUT"]
         
         new_lines = []
         for line in lines:
@@ -196,6 +245,7 @@ class Config:
         core_config = []
         core_config.append(f"TUSHARE_TOKEN={tushare_token}\n")
         core_config.append(f"LLM_PROVIDER={provider}\n")
+        # WAKE_UP_SHORTCUT is now saved to app_config.json, not .env
         
         if provider == "deepseek":
             core_config.append(f"DEEPSEEK_API_KEY={deepseek_key}\n")
@@ -217,6 +267,13 @@ class Config:
         # Update current env vars
         os.environ["TUSHARE_TOKEN"] = tushare_token
         os.environ["LLM_PROVIDER"] = provider
+        # Remove WAKE_UP_SHORTCUT from env if it exists (so we don't prefer it over json next time if we fallback)
+        if "WAKE_UP_SHORTCUT" in os.environ:
+            del os.environ["WAKE_UP_SHORTCUT"]
+            
+        # Save to app config
+        cls.save_app_config({"wake_up_shortcut": wake_up_shortcut})
+        cls.WAKE_UP_SHORTCUT = wake_up_shortcut
         
         if provider == "deepseek":
             os.environ["DEEPSEEK_API_KEY"] = deepseek_key
@@ -324,7 +381,7 @@ class Config:
                 openai_model = input("Enter Model Name: ").strip()
         
         # Use update_core_config to save
-        cls.update_core_config(tushare_token, provider, deepseek_key, deepseek_base, deepseek_model, openai_key, openai_base, openai_model)
+        cls.update_core_config(tushare_token, provider, deepseek_key, deepseek_base, deepseek_model, openai_key, openai_base, openai_model, "Ctrl+Alt+Q")
             
         print(f"Configuration saved to {cls.get_env_path()}")
         
@@ -340,7 +397,8 @@ class Config:
         env_vars_to_clear = [
             "TUSHARE_TOKEN", "LLM_PROVIDER", 
             "DEEPSEEK_API_KEY", "DEEPSEEK_BASE_URL", "DEEPSEEK_MODEL",
-            "OPENAI_API_KEY", "OPENAI_BASE_URL", "OPENAI_MODEL"
+            "OPENAI_API_KEY", "OPENAI_BASE_URL", "OPENAI_MODEL",
+            "WAKE_UP_SHORTCUT"
         ]
 
         def clean_env_file(file_path):
@@ -372,6 +430,23 @@ class Config:
         else:
             print(f"No configuration file found at: {env_path}")
             
+        # Also clean app_config.json
+        app_config_path = cls.get_app_config_path()
+        if os.path.exists(app_config_path):
+             try:
+                 # We only want to clear the keys we manage, or maybe just specific ones?
+                 # Since clear() implies clearing all sensitive/core data, we should probably clear wake_up_shortcut too?
+                 # Or maybe just delete the file if it only contains that?
+                 # Let's just remove the key.
+                 config = cls.load_app_config()
+                 if "wake_up_shortcut" in config:
+                     del config["wake_up_shortcut"]
+                     with open(app_config_path, 'w', encoding='utf-8') as f:
+                         json.dump(config, f, indent=2)
+                     print(f"Cleared wake_up_shortcut from {app_config_path}")
+             except Exception as e:
+                 print(f"Failed to clear app config: {e}")
+
         # Also clean local .env if it exists
         local_env = os.path.join(os.getcwd(), ".env")
         if clean_env_file(local_env):
@@ -391,6 +466,7 @@ class Config:
         cls.OPENAI_API_KEY = None
         cls.OPENAI_BASE_URL = None
         cls.OPENAI_MODEL = None
+        cls.WAKE_UP_SHORTCUT = None
 
 # Load on module import
 Config.load()

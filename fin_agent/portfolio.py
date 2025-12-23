@@ -4,6 +4,7 @@ from io import StringIO
 from typing import Dict, List, Optional
 import pandas as pd
 from fin_agent.config import Config
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError
 
 class PortfolioManager:
     def __init__(self, file_path: str = None):
@@ -104,6 +105,17 @@ class PortfolioManager:
         report = []
         total_market_value = 0.0
         total_cost_value = 0.0
+
+        # Helper: avoid hanging forever on realtime quote (network/provider can stall on Windows)
+        def get_realtime_price_safe(code: str, timeout_sec: float = 3.0):
+            with ThreadPoolExecutor(max_workers=1) as ex:
+                fut = ex.submit(get_realtime_price, code)
+                try:
+                    return fut.result(timeout=timeout_sec)
+                except FuturesTimeoutError:
+                    return "Error: Realtime quote timeout"
+                except Exception as e:
+                    return f"Error: {e}"
         
         for ts_code, data in positions.items():
             amount = data["amount"]
@@ -112,7 +124,7 @@ class PortfolioManager:
             # Fetch real-time price
             # get_realtime_price returns a JSON string, we need to parse it
             try:
-                price_json = get_realtime_price(ts_code)
+                price_json = get_realtime_price_safe(ts_code)
                 if "Error" in price_json or "No realtime data" in price_json:
                     current_price = cost # Fallback to cost if fails? Or 0? Let's keep cost to avoid panic, but mark it
                     current_price_str = f"{cost} (Est.)"

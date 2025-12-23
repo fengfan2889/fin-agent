@@ -1,7 +1,21 @@
+import sys
+import os
 from rich.markdown import Markdown, Heading
 from rich.panel import Panel
 from rich import box
 from rich.text import Text
+
+
+def debug_print(*args, **kwargs):
+    """
+    Print debug message only when running in API mode.
+    
+    Usage:
+        debug_print("some message", file=sys.stderr)
+        debug_print(f"value = {value}")
+    """
+    if os.environ.get("FIN_AGENT_API_MODE") == "1":
+        print("DEBUG:", *args, **kwargs)
 
 class LeftAlignedHeading(Heading):
     def __rich_console__(self, console, options):

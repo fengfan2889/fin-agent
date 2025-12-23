@@ -68,6 +68,7 @@ class OpenAICompatibleClient(LLMBase):
         Handle streaming response from OpenAI.
         Yields content chunks for display, and finally returns a constructed message object.
         """
+        import sys
         collected_content = []
         collected_tool_calls = {} # index -> tool_call_data
         
@@ -112,58 +113,86 @@ class OpenAICompatibleClient(LLMBase):
                     "arguments": self.arguments
                 }
 
-        for chunk in response_stream:
-            delta = chunk.choices[0].delta
-            
-            # Handle Content
-            if delta.content:
-                content_chunk = delta.content
-                collected_content.append(content_chunk)
-                yield {"type": "content", "content": content_chunk}
-            
-            # Handle Tool Calls (streaming)
-            if delta.tool_calls:
-                for tc in delta.tool_calls:
-                    index = tc.index
+        try:
+            chunk_count = 0
+            for chunk in response_stream:
+                chunk_count += 1
+                if not chunk.choices:
+                    continue
                     
-                    if index not in collected_tool_calls:
-                        collected_tool_calls[index] = {
-                            "id": "", "type": "function", "name": "", "arguments": ""
+                delta = chunk.choices[0].delta
+                
+                # Debug: log what we receive
+                has_content = hasattr(delta, 'content') and delta.content
+                has_tool_calls = hasattr(delta, 'tool_calls') and delta.tool_calls
+                # if chunk_count <= 3 or has_content or has_tool_calls:
+                #     from fin_agent.utils import debug_print
+                #     debug_print(f"[Stream] Chunk #{chunk_count}: has_content={has_content}, has_tool_calls={has_tool_calls}", file=sys.stderr)
+                
+                # Handle Content
+                if delta.content:
+                    content_chunk = delta.content
+                    collected_content.append(content_chunk)
+                    yield {"type": "content", "content": content_chunk}
+                
+                # Handle Tool Calls (streaming)
+                if delta.tool_calls:
+                    for tc in delta.tool_calls:
+                        index = tc.index
+                        
+                        # Yield a tool_call_chunk to allow real-time display
+                        yield {
+                            "type": "tool_call_chunk",
+                            "index": index,
+                            "id": tc.id if tc.id else None,
+                            "name": tc.function.name if tc.function and tc.function.name else None,
+                            "arguments": tc.function.arguments if tc.function and tc.function.arguments else None
                         }
-                    
-                    if tc.id:
-                        collected_tool_calls[index]["id"] += tc.id
-                    if tc.function:
-                        if tc.function.name:
-                            collected_tool_calls[index]["name"] += tc.function.name
-                        if tc.function.arguments:
-                            collected_tool_calls[index]["arguments"] += tc.function.arguments
 
-        # Construct final message
-        final_content = "".join(collected_content) if collected_content else None
-        
-        final_tool_calls = []
-        if collected_tool_calls:
-            # Sort by index to ensure order
-            sorted_indices = sorted(collected_tool_calls.keys())
-            for index in sorted_indices:
-                tc_data = collected_tool_calls[index]
-                final_tool_calls.append(
-                    ToolCall(
-                        id=tc_data["id"],
-                        type="function",
-                        function=Function(
-                            name=tc_data["name"],
-                            arguments=tc_data["arguments"]
+                        if index not in collected_tool_calls:
+                            collected_tool_calls[index] = {
+                                "id": "", "type": "function", "name": "", "arguments": ""
+                            }
+                        
+                        if tc.id:
+                            collected_tool_calls[index]["id"] += tc.id
+                        if tc.function:
+                            if tc.function.name:
+                                collected_tool_calls[index]["name"] += tc.function.name
+                            if tc.function.arguments:
+                                collected_tool_calls[index]["arguments"] += tc.function.arguments
+
+            # Construct final message
+            final_content = "".join(collected_content) if collected_content else None
+            
+            final_tool_calls = []
+            if collected_tool_calls:
+                # Sort by index to ensure order
+                sorted_indices = sorted(collected_tool_calls.keys())
+                for index in sorted_indices:
+                    tc_data = collected_tool_calls[index]
+                    final_tool_calls.append(
+                        ToolCall(
+                            id=tc_data["id"],
+                            type="function",
+                            function=Function(
+                                name=tc_data["name"],
+                                arguments=tc_data["arguments"]
+                            )
                         )
                     )
-                )
-        
-        final_message = Message(
-            role="assistant",
-            content=final_content,
-            tool_calls=final_tool_calls if final_tool_calls else None
-        )
-        
-        # Yield the final message object
-        yield {"type": "response", "response": final_message}
+            
+            final_message = Message(
+                role="assistant",
+                content=final_content,
+                tool_calls=final_tool_calls if final_tool_calls else None
+            )
+            
+            # Yield the final message object
+            yield {"type": "response", "response": final_message}
+
+        except Exception as e:
+            import traceback
+            from fin_agent.utils import debug_print
+            debug_print(f"Exception in _handle_stream: {traceback.format_exc()}", file=sys.stderr)
+            raise e
