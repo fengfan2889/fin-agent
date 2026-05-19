@@ -30,7 +30,7 @@ class FinAgent:
             "2. **USE TOOLS**: All market data MUST be obtained via Tushare tools. Do not use internal knowledge.\\n\\n"
             "### TOOL USAGE ###\\n"
             "For 'latest' or 'current' price queries, use 'get_realtime_price'. "
-            "For trends and analysis, use 'get_daily_price' to get historical context. "
+            "For trends and analysis, use 'get_daily_price' to get historical context (optional adj: qfq/前复权, hfq/后复权, omit for 不复权). "
             "For valuation (PE, PB) or market cap, use 'get_daily_basic'. "
             "For financial performance (Revenue, Profit), use 'get_income_statement'. "
             "For market index (Shanghai Composite, etc.), use 'get_index_daily'. "
@@ -55,6 +55,15 @@ class FinAgent:
             "**CRITICAL**: If you need to present a list of items (stocks, companies, data points, etc.) and the count is 3 or more, you MUST format it as a Markdown table or a structured list. "
             "Do NOT present 3+ items as plain text paragraphs. Use tables for structured data (e.g., stock lists with columns like code, name, price) or numbered/bulleted lists for simple items. "
             "For example, if listing 3+ stocks, use a table format with columns. If listing 3+ simple items, use a numbered or bulleted list.\\n\\n"
+            "### QUICK REPLY CHOICES (client UI, high priority) ###\\n"
+            "The desktop client ALWAYS shows quick-reply buttons, including a fixed 功能总览 button that sends a preset user message asking you to explain capabilities and end with FIN_AGENT_CHOICES_JSON; users expect quick replies on every substantive turn. "
+            "Therefore on EVERY assistant message that is more than a trivial one-line acknowledgment (e.g. any analysis, tables, tool results, lists, or recommendations), you MUST append the FIN_AGENT_CHOICES_JSON line at the ABSOLUTE END, after all visible Markdown. "
+            "The JSON array must contain 2-8 objects tailored to THIS reply: mix concrete next steps (e.g. pick a stock/strategy) with generic follow-ups (expand rationale, compare to index, verify data date, risk checklist) as needed. "
+            "Format: one line only: FIN_AGENT_CHOICES_JSON, one space, then one compact JSON array (no line breaks inside the JSON). "
+            "Each object: optional string label (short button text), required string send (full user message sent on click). "
+            "Example: FIN_AGENT_CHOICES_JSON [{\"label\":\"MACD\",\"send\":\"用 MACD 策略回测 600519.SH 近一年\"},{\"label\":\"均线\",\"send\":\"用双均线策略回测 600519.SH 近一年\"}] "
+            "Only omit FIN_AGENT_CHOICES_JSON for ultra-short replies with no follow-up (e.g. a single '好的'). Never put the marker in the middle of the reply. "
+            "If the user message is the preset '功能总览' capability request (asks you to list what you can do and to end with FIN_AGENT_CHOICES_JSON), answer comprehensively in Chinese, then append FIN_AGENT_CHOICES_JSON with 6-8 diverse, concrete example user queries covering major features.\\n\\n"
             "### USER CONTEXT & MEMORY ###\\n"
             "You have access to a long-term memory of the user's investment preferences. "
             "Use the 'update_user_profile' tool to SAVE new preferences when the user explicitly states them or when you infer them (e.g., 'I prefer low risk', 'I only buy tech stocks'). "
@@ -349,12 +358,11 @@ class FinAgent:
                 # print(f"DEBUG: Processing {len(message.tool_calls)} tool calls", file=sys.stderr)
                 self.history.append(self._to_dict(message)) # Add assistant's message with tool_calls to history
 
-                for tool_call in message.tool_calls:
+                for tool_index, tool_call in enumerate(message.tool_calls):
                     function_name = tool_call.function.name
                     arguments = tool_call.function.arguments
                     call_id = tool_call.id
-                    
-                    # print(f"DEBUG: Tool Call: {function_name}", file=sys.stderr)
+                    # CLI run() depends on this; streaming already emitted tool_call_chunk for the GUI.
                     yield {"type": "tool_call", "tool_name": function_name, "args": arguments}
                     
                     # Execute tool
@@ -376,7 +384,13 @@ class FinAgent:
                     # Truncate result if too long for log, but keep full for LLM
                     # display_result = tool_result[:200] + "..." if len(str(tool_result)) > 200 else tool_result
                     
-                    yield {"type": "tool_result", "tool_name": function_name, "result": str(tool_result)}
+                    yield {
+                        "type": "tool_result",
+                        "tool_name": function_name,
+                        "tool_call_id": call_id,
+                        "tool_index": tool_index,
+                        "result": str(tool_result),
+                    }
 
                     # Append tool result to history
                     self.history.append({
@@ -434,19 +448,73 @@ class FinAgent:
         generator = self.stream_chat(user_input)
         
         final_answer = ""
-        
+
+        # Filter out the FIN_AGENT_CHOICES_JSON marker line intended only for the
+        # desktop client's quick-reply parser. CLI users should not see this.
+        choices_marker = "FIN_AGENT_CHOICES_JSON"
+        content_filter_buf = ""
+        choices_suppressed = False
+
+        def filter_content_chunk(text):
+            nonlocal content_filter_buf, choices_suppressed
+            if choices_suppressed:
+                return ""
+            content_filter_buf += text
+            idx = content_filter_buf.find(choices_marker)
+            if idx != -1:
+                out = content_filter_buf[:idx].rstrip()
+                content_filter_buf = ""
+                choices_suppressed = True
+                return out
+            # Hold back a tail that could still become the marker when more chunks arrive.
+            max_tail = min(len(choices_marker) - 1, len(content_filter_buf))
+            hold = 0
+            for length in range(max_tail, 0, -1):
+                if choices_marker.startswith(content_filter_buf[-length:]):
+                    hold = length
+                    break
+            if hold == 0:
+                out = content_filter_buf
+                content_filter_buf = ""
+                return out
+            out = content_filter_buf[:-hold]
+            content_filter_buf = content_filter_buf[-hold:]
+            return out
+
+        def flush_content_filter():
+            nonlocal content_filter_buf
+            if choices_suppressed:
+                content_filter_buf = ""
+                return ""
+            out = content_filter_buf
+            content_filter_buf = ""
+            return out
+
+        # Thinking is printed to the raw terminal; reset styles before normal content / tools
+        # so output order does not look glued or color-bleed into the next block.
+        thinking_pending_reset = False
+
         try:
             for event in generator:
                 event_type = event['type']
                 
                 if event_type == 'content':
+                    if thinking_pending_reset:
+                        print(Style.RESET_ALL, end="", flush=True)
+                        thinking_pending_reset = False
                     content = event['content']
-                    update_md(content)
+                    visible = filter_content_chunk(content)
+                    if visible:
+                        update_md(visible)
                     if callback: callback('content', content)
                     
                 elif event_type == 'thinking':
                     content = event['content']
+                    tail = flush_content_filter()
+                    if tail:
+                        update_md(tail)
                     stop_md()
+                    thinking_pending_reset = True
                     print(f"{Style.DIM}{Fore.YELLOW}{content}", end="", flush=True)
                     # We might need to handle resetting color after thinking block ends
                     # The generator stream separates thinking chunks. 
@@ -456,19 +524,26 @@ class FinAgent:
                     pass 
                     
                 elif event_type == 'tool_call':
+                    tail = flush_content_filter()
+                    if tail:
+                        update_md(tail)
                     stop_md()
-                    # If we were thinking, reset color
-                    print(Style.RESET_ALL, end="", flush=True) 
+                    print(Style.RESET_ALL, end="", flush=True)
+                    thinking_pending_reset = False
                     
                     name = event['tool_name']
                     args = event['args']
-                    print(f"\n{Fore.CYAN}Calling Tool: {name} with args: {args}{Style.RESET_ALL}")
+                    print(f"\n{Fore.CYAN}Calling Tool: {name}{Style.RESET_ALL}")
                     if callback: callback('tool_call', {"name": name, "args": args})
 
                 elif event_type == 'tool_result':
+                    if thinking_pending_reset:
+                        print(Style.RESET_ALL, end="", flush=True)
+                        thinking_pending_reset = False
                     result = event['result']
-                    display_result = result[:200] + "..." if len(result) > 200 else result
-                    print(f"{Fore.BLUE}Tool Result: {display_result}{Style.RESET_ALL}")
+                    compact = " ".join(str(result).split())
+                    display_result = compact[:120] + "..." if len(compact) > 120 else compact
+                    print(f"\n{Fore.BLUE}Tool Result: {display_result}{Style.RESET_ALL}")
                     if callback: callback('tool_result', {"name": event['tool_name'], "result": result})
 
                 elif event_type == 'error':
@@ -478,7 +553,13 @@ class FinAgent:
                     return event['content']
 
                 elif event_type == 'answer':
-                    final_answer = event['content']
+                    tail = flush_content_filter()
+                    if tail:
+                        update_md(tail)
+                    answer_text = event['content']
+                    if choices_marker in answer_text:
+                        answer_text = answer_text.split(choices_marker, 1)[0].rstrip()
+                    final_answer = answer_text
             
             stop_md()
             print(Style.RESET_ALL) # Ensure reset at end
